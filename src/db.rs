@@ -3,7 +3,7 @@ use sqlx::postgres::PgPoolOptions;
 
 pub async fn connect_to_db() {
     dotenv().ok();
-    let database_url = var("POSTGRES_URL").expect("POSTGRES_URL must be set");
+    let database_url = var("DATABASE_URL").expect("DATABASE_URL must be set");
 
     match PgPoolOptions::new()
         .max_connections(5)

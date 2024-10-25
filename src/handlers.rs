@@ -1,14 +1,77 @@
-use axum::{response::IntoResponse, Json};
+use std::sync::Arc;
 
-pub async fn user_handler() -> impl IntoResponse {
-    const MESSAGE: &str = "Users";
+use crate::{
+    models::{NoteModel, NoteModelResponse},
+    schema::CreateNoteSchema,
+    AppState,
+};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
+use serde_json::json;
 
-    let json_response = serde_json::json!({
-        "message": MESSAGE,
-        "status": "OK"
+fn to_note_response(note: &NoteModel) -> NoteModelResponse {
+    NoteModelResponse {
+        id: note.id.to_owned(),
+        title: note.title.to_owned(),
+        content: note.content.to_owned(),
+        is_published: note.is_published,
+        created_at: note.created_at.unwrap(),
+        updated_at: note.updated_at.unwrap(),
+    }
+}
+
+pub async fn create_note_handler(
+    State(data): State<Arc<AppState>>,
+    Json(body): Json<CreateNoteSchema>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    // Insert
+    let id = uuid::Uuid::new_v4().to_string();
+    let query_result = sqlx::query(r#"INSERT INTO notes (id, title, content) VALUES (?, ?, ?)"#)
+        .bind(&id)
+        .bind(&body.title)
+        .bind(&body.content)
+        .execute(&data.db)
+        .await
+        .map_err(|err: sqlx::Error| err.to_string());
+
+    // Duplicate err check
+    if let Err(err) = query_result {
+        if err.contains("Duplicate entry") {
+            let error_response = serde_json::json!({
+                "status": "error",
+                "message": "Note already exists",
+            });
+            return Err((StatusCode::CONFLICT, Json(error_response)));
+        }
+
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"status": "error","message": format!("{:?}", err)})),
+        ));
+    }
+
+    let note = sqlx::query_as!(NoteModel, r#"SELECT * FROM notes WHERE id = ?"#, &id)
+        .fetch_one(&data.db)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"status": "error","message": format!("{:?}", e)})),
+            )
+        })?;
+
+    let note_response = serde_json::json!({
+            "status": "success",
+            "data": serde_json::json!({
+                "note": to_note_response(&note)
+        })
     });
 
-    return Json(json_response);
+    Ok(Json(note_response))
 }
 
 pub async fn health_check_handler() -> impl IntoResponse {
