@@ -1,9 +1,16 @@
-use axum::{response::IntoResponse, routing::get, Json, Router};
+use axum::{routing::get, Router};
 use tokio::net::TcpListener;
+
+mod db;
+mod handlers;
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new().route("/api/healthcheck", get(health_check_handler));
+    db::connect_to_db().await;
+
+    let app = Router::new()
+        .route("/api/healthcheck", get(handlers::health_check_handler))
+        .route("/", get(handlers::user_handler));
 
     println!("Server started at http://localhost:8080");
 
@@ -12,15 +19,4 @@ async fn main() {
     axum::serve(listener, app.into_make_service())
         .await
         .unwrap()
-}
-
-async fn health_check_handler() -> impl IntoResponse {
-    const MESSAGE: &str = "API";
-
-    let json_response = serde_json::json!({
-        "message": MESSAGE,
-        "status": "OK"
-    });
-
-    return Json(json_response);
 }
